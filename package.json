@@ -13,7 +13,13 @@
     "sync": "tsx src/update.ts",
     "clean": "rm -rf dist logs/*.log data/backups/temp"
   },
-  "keywords": ["signal", "youtube", "music", "playlist", "aggregation"],
+  "keywords": [
+    "signal",
+    "youtube",
+    "music",
+    "playlist",
+    "aggregation"
+  ],
   "author": "Signal Music Group Project",
   "license": "MIT",
   "engines": {
@@ -26,6 +32,7 @@
     "chalk": "5.3.0",
     "commander": "12.1.0",
     "dotenv": "16.4.7",
+    "google-auth-library": "10.5.0",
     "googleapis": "164.1.0"
   },
   "devDependencies": {

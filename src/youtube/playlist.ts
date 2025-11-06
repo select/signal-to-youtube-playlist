@@ -78,7 +78,7 @@ export const initializeYouTubeClient = async (): Promise<YouTubeClient> => {
   try {
     const token = await loadToken();
     setCredentials(oauth2Client, token);
-  } catch (error) {
+  } catch {
     throw new Error(
       "Authentication required. Please run authenticate() first.",
     );
@@ -126,7 +126,7 @@ const fetchPlaylistPage = async (
   items: youtube_v3.Schema$PlaylistItem[];
   nextPageToken?: string | null;
 }> => {
-  const response = await client.youtube.playlistItems.list({
+  const response = client.youtube.playlistItems.list({
     part: ["snippet", "contentDetails"],
     playlistId,
     maxResults: 50,
