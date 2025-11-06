@@ -126,7 +126,7 @@ const fetchPlaylistPage = async (
   items: youtube_v3.Schema$PlaylistItem[];
   nextPageToken?: string | null;
 }> => {
-  const response = client.youtube.playlistItems.list({
+  const response = await client.youtube.playlistItems.list({
     part: ["snippet", "contentDetails"],
     playlistId,
     maxResults: 50,
