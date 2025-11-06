@@ -1,0 +1,83 @@
+{
+  "compilerOptions": {
+    /* Language and Environment */
+    "target": "ES2022",
+    "lib": ["ES2022", "ES2019"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": false,
+
+    /* Node.js specific */
+    "allowImportingTsExtensions": false,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": false,
+
+    /* Emit */
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "removeComments": false,
+    "importHelpers": false,
+    "downlevelIteration": true,
+    "isolatedModules": true,
+
+    /* Type Checking */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": false,
+
+    /* Interop Constraints */
+    "preserveSymlinks": true,
+
+    /* Type Checking */
+    "skipDefaultLibCheck": true,
+    "skipLibCheck": true,
+
+    /* Path Mapping */
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./src/*"],
+      "~/signal/*": ["./src/signal/*"],
+      "~/data/*": ["./src/data/*"],
+      "~/youtube/*": ["./src/youtube/*"],
+      "~/web/*": ["./src/web/*"],
+      "~/utils/*": ["./src/utils/*"],
+      "~/types/*": ["./src/types/*"],
+      "~/config/*": ["./config/*"],
+      "~/tests/*": ["./tests/*"]
+    },
+
+    /* Advanced Options */
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "web/dist",
+    "logs",
+    "data/backups",
+    "coverage"
+  ]
+}

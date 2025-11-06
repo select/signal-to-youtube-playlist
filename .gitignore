@@ -1,0 +1,135 @@
+# =============================================================================
+# NODE.JS & PNPM
+# =============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# pnpm specific
+.pnpm-debug.log*
+
+# =============================================================================
+# BUILD & DISTRIBUTION
+# =============================================================================
+
+# Build outputs
+dist/
+build/
+out/
+
+# Compiled TypeScript
+*.tsbuildinfo
+
+# =============================================================================
+# ENVIRONMENT & CONFIGURATION
+# =============================================================================
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep example/template files
+!.env.example
+
+# =============================================================================
+# SECURITY & SENSITIVE DATA
+# =============================================================================
+
+credentials.json
+token.json
+
+# =============================================================================
+# DATA & DATABASES
+# =============================================================================
+
+# Generated data files
+data/json/*.json
+!data/json/.gitkeep
+
+# Database backups
+data/backups/
+!data/backups/.gitkeep
+
+# SQLite databases (if any local copies)
+*.sqlite
+*.sqlite3
+*.db
+
+# Temporary data files
+data/temp/*.tmp
+
+# =============================================================================
+# LOGS & MONITORING
+# =============================================================================
+
+# Log files
+logs/*.log
+*.log
+
+# Debug files
+debug/*.debug
+
+# Performance profiles
+profiles/*.prof
+
+# =============================================================================
+# DEVELOPMENT TOOLS
+# =============================================================================
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# =============================================================================
+# BACKUP & ARCHIVE FILES
+# =============================================================================
+
+# Backup files
+*.bak
+*.backup
+*~.save
+
+# =============================================================================
+# MISCELLANEOUS
+# =============================================================================
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Vite cache
+.vite/
+
+# Nuxt.js cache
+.nuxt/
