@@ -9,7 +9,6 @@ import {
   initializeDatabase,
   getUniqueVideoIds,
   closeDatabase,
-  type YouTubeLink,
 } from "./signal/extractor.js";
 import { config } from "dotenv";
 

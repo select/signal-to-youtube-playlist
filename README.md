@@ -44,11 +44,17 @@ YOUTUBE_TOKEN_PATH=./token.json
 
 4. Set up YouTube API credentials:
 
-Follow the detailed guide in [YOUTUBE_SETUP.md](./YOUTUBE_SETUP.md) to:
 - Create a Google Cloud project
 - Enable YouTube Data API v3
 - Generate OAuth 2.0 credentials
 - Authenticate your application
+Follow the detailed guide in [YOUTUBE_SETUP.md](./YOUTUBE_SETUP.md) to:
+
+5. Find your playlist ID:
+```sh
+npm youtube list
+```
+You can not copy the id to `YOUTUBE_PLAYLIST_ID` in `.env`.
 
 ## Usage
 
@@ -121,8 +127,8 @@ pnpm format:check
 # Type check
 pnpm lint:ts
 
-# Clean temporary files
-pnpm clean
+# YouTube playlist tools: list, videos, add, create, extract
+pnpm youtube
 ```
 
 ### Project Structure
