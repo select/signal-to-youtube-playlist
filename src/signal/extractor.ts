@@ -9,16 +9,20 @@ config();
 interface Message {
   id: string;
   body: string;
+  sent_at: number;
+  timestamp: number;
+  sourceServiceId: string | null;
+  type: string;
 }
 
 interface Conversation {
   id: string;
 }
 
-export interface YouTubeLink {
+export interface YouTubeLinkWithMetadata {
   videoId: string;
-  url: string;
-  messageId: string;
+  datetime: number;
+  userId: string | null;
 }
 
 interface SignalConfig {
@@ -34,7 +38,7 @@ interface DbConnection {
 
 // Configuration
 const createSignalConfig = (): SignalConfig => ({
-  signalPath: join(process.env.HOME!, process.env.SIGNAL_PATH),
+  signalPath: join(process.env.HOME!, process.env.SIGNAL_PATH!),
   groupName: process.env.SIGNAL_GROUP_NAME || "",
   youTubeRegexes: [
     /youtu\.be\/([\w-]+)/g,
@@ -98,42 +102,25 @@ const fetchMessages = (
 ): Message[] =>
   db
     .prepare(
-      `SELECT id, body FROM messages WHERE conversationId=? AND body IS NOT NULL AND body != 'NULL'`,
+      `SELECT id, body, sent_at, timestamp, sourceServiceId, type FROM messages WHERE conversationId=? AND body IS NOT NULL AND body != 'NULL'`,
     )
     .all(conversationId) as Message[];
 
 // Video extraction
-const extractVideoIdsFromText = (text: string, regexes: RegExp[]): string[] =>
-  regexes.flatMap((regex) => {
-    regex.lastIndex = 0;
-    const matches: string[] = [];
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      matches.push(match[1]);
-    }
-    return matches;
-  });
-
-const extractVideoIdsFromMessages = (
+const extractLinksWithMetadataFromMessages = (
   messages: Message[],
   regexes: RegExp[],
-): string[] =>
-  messages.flatMap((message) => extractVideoIdsFromText(message.body, regexes));
-
-const extractLinksFromMessages = (
-  messages: Message[],
-  regexes: RegExp[],
-): YouTubeLink[] =>
+): YouTubeLinkWithMetadata[] =>
   messages.flatMap((message) =>
     regexes.flatMap((regex) => {
       regex.lastIndex = 0;
-      const links: YouTubeLink[] = [];
+      const links: YouTubeLinkWithMetadata[] = [];
       let match;
       while ((match = regex.exec(message.body)) !== null) {
         links.push({
-          videoId: match[1],
-          url: match[0],
-          messageId: message.id,
+          videoId: match[1]!,
+          datetime: message.sent_at || message.timestamp,
+          userId: message.type === "incoming" ? message.sourceServiceId : null,
         });
       }
       return links;
@@ -141,41 +128,20 @@ const extractLinksFromMessages = (
   );
 
 // Main functions
-export const extractVideoIds = (connection: DbConnection): string[] => {
+export const extractLinksWithMetadata = (
+  connection: DbConnection,
+): YouTubeLinkWithMetadata[] => {
   const conversation = findConversation(
     connection.db,
     connection.config.groupName,
   );
   const messages = fetchMessages(connection.db, conversation.id);
-  return extractVideoIdsFromMessages(
+  return extractLinksWithMetadataFromMessages(
     messages,
     connection.config.youTubeRegexes,
   );
 };
 
-export const extractLinks = (connection: DbConnection): YouTubeLink[] => {
-  const conversation = findConversation(
-    connection.db,
-    connection.config.groupName,
-  );
-  const messages = fetchMessages(connection.db, conversation.id);
-  return extractLinksFromMessages(messages, connection.config.youTubeRegexes);
-};
-
-export const getUniqueVideoIds = (connection: DbConnection): string[] => [
-  ...new Set(extractVideoIds(connection)),
-];
-
 export const closeDatabase = (connection: DbConnection): void => {
   connection.db.close();
-};
-
-// Helper function for quick extraction
-export const extractYouTubeVideosFromSignal = async (): Promise<string[]> => {
-  const connection = await initializeDatabase();
-  try {
-    return getUniqueVideoIds(connection);
-  } finally {
-    closeDatabase(connection);
-  }
 };

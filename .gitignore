@@ -18,6 +18,7 @@ node_modules/
 dist/
 build/
 out/
+data/
 
 # Compiled TypeScript
 *.tsbuildinfo

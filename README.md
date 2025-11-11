@@ -52,7 +52,7 @@ Follow the detailed guide in [YOUTUBE_SETUP.md](./YOUTUBE_SETUP.md) to:
 
 5. Find your playlist ID:
 ```sh
-npm youtube list
+pnpm youtube list
 ```
 You can not copy the id to `YOUTUBE_PLAYLIST_ID` in `.env`.
 

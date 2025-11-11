@@ -7,10 +7,13 @@ import {
 } from "./youtube/playlist.js";
 import {
   initializeDatabase,
-  getUniqueVideoIds,
+  extractLinksWithMetadata,
   closeDatabase,
+  type YouTubeLinkWithMetadata,
 } from "./signal/extractor.js";
 import { config } from "dotenv";
+import { writeFile, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 // Load environment variables
 config();
@@ -41,7 +44,11 @@ const logProgress = (current: number, total: number, message: string) =>
 const findNewVideos = (
   signalVideoIds: string[],
   existingVideoIds: Set<string>,
-): string[] => signalVideoIds.filter((id) => !existingVideoIds.has(id));
+  blacklistedVideoIds: Set<string>,
+): string[] =>
+  signalVideoIds.filter(
+    (id) => !existingVideoIds.has(id) && !blacklistedVideoIds.has(id),
+  );
 
 // Video addition result types
 interface AddResult {
@@ -50,6 +57,51 @@ interface AddResult {
   message: string;
   title?: string;
 }
+
+// Blacklist functionality
+interface VideoBlacklist {
+  description: string;
+  videoIds: string[];
+}
+
+const loadVideoBlacklist = async (): Promise<Set<string>> => {
+  try {
+    const blacklistPath = join(process.cwd(), "data", "video-blacklist.json");
+    const blacklistText = await readFile(blacklistPath, "utf-8");
+    const blacklist: VideoBlacklist = JSON.parse(blacklistText);
+    return new Set(blacklist.videoIds);
+  } catch (error) {
+    log("   ⚠️  Could not load video blacklist, continuing without filtering");
+    return new Set();
+  }
+};
+
+const handleBlacklistedVideo = (videoId: string): AddResult => ({
+  status: "skipped",
+  videoId,
+  message: `🚫 Video ${videoId} is blacklisted - skipping`,
+});
+
+// Metadata writing functionality
+const saveMetadataToFile = async (
+  metadata: YouTubeLinkWithMetadata[],
+): Promise<void> => {
+  const dataPath = join(process.cwd(), "data", "youtube_links_metadata.json");
+  const jsonData = JSON.stringify(metadata, null, 2);
+  await writeFile(dataPath, jsonData, "utf-8");
+  log(
+    `   💾 Saved ${metadata.length} YouTube links with metadata to ${dataPath}`,
+  );
+};
+
+const loadSignalMetadata = async (): Promise<YouTubeLinkWithMetadata[]> => {
+  const connection = await initializeDatabase();
+  try {
+    return extractLinksWithMetadata(connection);
+  } finally {
+    closeDatabase(connection);
+  }
+};
 
 const handleVideoNotFound = (videoId: string): AddResult => ({
   status: "skipped",
@@ -86,7 +138,13 @@ const processVideoAddition = async (
   client: YouTubeClient,
   playlistId: string,
   videoId: string,
+  blacklistedVideoIds: Set<string>,
 ): Promise<AddResult> => {
+  // Check if video is blacklisted
+  if (blacklistedVideoIds.has(videoId)) {
+    return handleBlacklistedVideo(videoId);
+  }
+
   try {
     const videoInfo = await getVideoInfo(client, videoId);
 
@@ -113,8 +171,14 @@ const addVideoWithRateLimit = async (
   videoId: string,
   index: number,
   total: number,
+  blacklistedVideoIds: Set<string>,
 ): Promise<AddResult> => {
-  const result = await processVideoAddition(client, playlistId, videoId);
+  const result = await processVideoAddition(
+    client,
+    playlistId,
+    videoId,
+    blacklistedVideoIds,
+  );
   logProgress(index + 1, total, result.message);
 
   if (index < total - 1) {
@@ -129,6 +193,7 @@ const addVideosSequentially = async (
   client: YouTubeClient,
   playlistId: string,
   videoIds: string[],
+  blacklistedVideoIds: Set<string>,
 ): Promise<AddResult[]> => {
   const results: AddResult[] = [];
 
@@ -141,6 +206,7 @@ const addVideosSequentially = async (
       videoIds[index]!,
       index,
       videoIds.length,
+      blacklistedVideoIds,
     );
     results.push(result);
 
@@ -154,6 +220,7 @@ const addVideosSequentially = async (
 interface Stats {
   totalSignalVideos: number;
   previouslyInPlaylist: number;
+  blacklistedVideos: number;
   newVideosAdded: number;
   skipped: number;
   errors: number;
@@ -163,12 +230,17 @@ interface Stats {
 const calculateStats = (
   signalVideoIds: string[],
   existingVideoIds: Set<string>,
+  blacklistedVideoIds: Set<string>,
   results: AddResult[],
 ): Stats => ({
   totalSignalVideos: signalVideoIds.length,
   previouslyInPlaylist: existingVideoIds.size,
+  blacklistedVideos: results.filter((r) => r.message.includes("blacklisted"))
+    .length,
   newVideosAdded: results.filter((r) => r.status === "added").length,
-  skipped: results.filter((r) => r.status === "skipped").length,
+  skipped: results.filter(
+    (r) => r.status === "skipped" && !r.message.includes("blacklisted"),
+  ).length,
   errors: results.filter((r) => r.status === "error").length,
   finalPlaylistSize:
     existingVideoIds.size + results.filter((r) => r.status === "added").length,
@@ -178,6 +250,7 @@ const printStats = (stats: Stats): void => {
   log("\n📊 Summary:");
   log(`   Total Signal videos: ${stats.totalSignalVideos}`);
   log(`   Previously in playlist: ${stats.previouslyInPlaylist}`);
+  log(`   Blacklisted videos: ${stats.blacklistedVideos}`);
   log(`   New videos added: ${stats.newVideosAdded}`);
   log(`   Skipped (not found/duplicate): ${stats.skipped}`);
   log(`   Errors: ${stats.errors}`);
@@ -204,22 +277,43 @@ const loadExistingVideos = async (
 
 const loadSignalVideos = async () => {
   logStep(2, "📱 Extracting YouTube links from Signal messages...");
-  const connection = await initializeDatabase();
-  try {
-    const videoIds = getUniqueVideoIds(connection);
-    log(`   Found ${videoIds.length} unique videos in Signal`);
-    return videoIds;
-  } finally {
-    closeDatabase(connection);
-  }
+  const metadata = await loadSignalMetadata();
+  const videoIds = [...new Set(metadata.map((link) => link.videoId))];
+
+  // Save metadata to file
+  await saveMetadataToFile(metadata);
+
+  log(`   Found ${videoIds.length} unique videos in Signal`);
+  log(`   Found ${metadata.length} total YouTube links with metadata`);
+  return videoIds;
+};
+
+const loadBlacklist = async () => {
+  logStep(3, "🚫 Loading video blacklist...");
+  const blacklistedVideoIds = await loadVideoBlacklist();
+  log(`   Found ${blacklistedVideoIds.size} blacklisted videos`);
+  return blacklistedVideoIds;
 };
 
 const checkNewVideos = (
   signalVideoIds: string[],
   existingVideoIds: Set<string>,
+  blacklistedVideoIds: Set<string>,
 ) => {
-  logStep(3, "🔍 Checking for new videos...");
-  const newVideoIds = findNewVideos(signalVideoIds, existingVideoIds);
+  logStep(4, "🔍 Checking for new videos...");
+  const newVideoIds = findNewVideos(
+    signalVideoIds,
+    existingVideoIds,
+    blacklistedVideoIds,
+  );
+
+  const blacklistedCount = signalVideoIds.filter((id) =>
+    blacklistedVideoIds.has(id),
+  ).length;
+
+  if (blacklistedCount > 0) {
+    log(`   Found ${blacklistedCount} blacklisted videos (will be skipped)`);
+  }
 
   if (newVideoIds.length === 0) {
     log("   ✨ Playlist is already up to date!");
@@ -234,9 +328,15 @@ const addNewVideos = async (
   client: YouTubeClient,
   playlistId: string,
   newVideoIds: string[],
+  blacklistedVideoIds: Set<string>,
 ) => {
-  logStep(4, "➕ Adding new videos to playlist...");
-  return addVideosSequentially(client, playlistId, newVideoIds);
+  logStep(5, "➕ Adding new videos to playlist...");
+  return addVideosSequentially(
+    client,
+    playlistId,
+    newVideoIds,
+    blacklistedVideoIds,
+  );
 };
 
 const handleError = (error: any): never => {
@@ -273,19 +373,39 @@ const updatePlaylist = async (): Promise<void> => {
 
     const existingVideoIds = await loadExistingVideos(client, playlistId);
     const signalVideoIds = await loadSignalVideos();
-    const newVideoIds = checkNewVideos(signalVideoIds, existingVideoIds);
+    const blacklistedVideoIds = await loadBlacklist();
+    const newVideoIds = checkNewVideos(
+      signalVideoIds,
+      existingVideoIds,
+      blacklistedVideoIds,
+    );
 
     if (!newVideoIds) {
-      const stats = calculateStats(signalVideoIds, existingVideoIds, []);
+      const stats = calculateStats(
+        signalVideoIds,
+        existingVideoIds,
+        blacklistedVideoIds,
+        [],
+      );
       log("");
       printStats(stats);
       return;
     }
 
-    const results = await addNewVideos(client, playlistId, newVideoIds);
+    const results = await addNewVideos(
+      client,
+      playlistId,
+      newVideoIds,
+      blacklistedVideoIds,
+    );
 
     log("\n✨ Update complete!");
-    const stats = calculateStats(signalVideoIds, existingVideoIds, results);
+    const stats = calculateStats(
+      signalVideoIds,
+      existingVideoIds,
+      blacklistedVideoIds,
+      results,
+    );
     printStats(stats);
     checkForErrors(stats);
   } catch (error: any) {
