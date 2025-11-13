@@ -10,7 +10,9 @@
     "format:check": "prettier --check src/",
     "lint:ts": "tsc --noEmit",
     "youtube": "tsx src/youtube/examples.ts",
-    "sync": "tsx src/update.ts"
+    "sync": "tsx src/update.ts",
+    "sync:legacy": "tsx src/update-legacy.ts",
+    "anonymize": "tsx src/anonymize.ts"
   },
   "keywords": ["signal", "youtube", "music", "playlist", "aggregation"],
   "author": "Signal Music Group Project",
