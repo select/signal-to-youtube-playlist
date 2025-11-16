@@ -12,6 +12,7 @@
     "youtube": "tsx src/youtube/examples.ts",
     "sync": "tsx src/update.ts",
     "sync:legacy": "tsx src/update-legacy.ts",
+    "auth": "tsx src/youtube/auth.ts",
     "anonymize": "tsx src/anonymize.ts"
   },
   "keywords": ["signal", "youtube", "music", "playlist", "aggregation"],
