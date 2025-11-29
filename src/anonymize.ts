@@ -13,7 +13,7 @@ interface YouTubeMetadata {
 }
 
 interface IdMap {
-  [filename: string]: string | null;
+  [filename: string]: Array<[string | null, string]>;
 }
 
 interface FileConfig {
@@ -31,26 +31,35 @@ const hashWithSalt = (input: string, salt: string): string => {
 };
 
 /**
- * Replaces null userIds with mapped values from id_map.json
+ * Replaces userIds with mapped values from id_map.json using the new tuple format
  */
-const replaceNullUserIds = (
+const replaceUserIds = (
   data: YouTubeMetadata[],
   filename: string,
   idMap: IdMap,
 ): YouTubeMetadata[] => {
-  const mappedId = idMap[filename];
+  const mappings = idMap[filename];
 
-  if (!mappedId) {
+  if (!mappings) {
     console.warn(
       `⚠️  No mapping found for ${filename}, keeping original userIds`,
     );
     return data;
   }
 
-  return data.map((item) => ({
-    ...item,
-    userId: item.userId === null ? mappedId : item.userId,
-  }));
+  // Create a map from original IDs to mapped IDs
+  const mappingMap = new Map<string | null, string>();
+  mappings.forEach(([originalId, mappedId]) => {
+    mappingMap.set(originalId, mappedId);
+  });
+
+  return data.map((item) => {
+    const mappedId = mappingMap.get(item.userId);
+    return {
+      ...item,
+      userId: mappedId || item.userId,
+    };
+  });
 };
 
 /**
@@ -112,11 +121,7 @@ const processMetadataFile = async (
     const fileContent = await readFile(fileConfig.path, "utf-8");
     const data: YouTubeMetadata[] = JSON.parse(fileContent);
 
-    const dataWithMappedIds = replaceNullUserIds(
-      data,
-      fileConfig.filename,
-      idMap,
-    );
+    const dataWithMappedIds = replaceUserIds(data, fileConfig.filename, idMap);
 
     console.log(`✅ Processed ${fileConfig.filename}: ${data.length} entries`);
     return dataWithMappedIds;
@@ -207,6 +212,10 @@ const main = async (): Promise<void> => {
       {
         path: path.join(dataDir, "youtube_links_metadata_legacy.json"),
         filename: "youtube_links_metadata_legacy.json",
+      },
+      {
+        path: path.join(dataDir, "youtube_links_metadata_whatsapp.json"),
+        filename: "youtube_links_metadata_whatsapp.json",
       },
     ];
 

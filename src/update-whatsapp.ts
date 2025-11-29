@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { extractYouTubeLinks, createWhatsAppConfig } from "./whatsapp/index.js";
 import {
   initializeYouTubeClient,
   getPlaylistVideoIds,
@@ -7,15 +10,14 @@ import {
 } from "./youtube/playlist.js";
 import { config } from "dotenv";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 // Load environment variables
 config();
 
-interface YouTubeLinkWithMetadata {
+interface WhatsAppYouTubeMetadata {
   videoId: string;
   datetime: number;
-  userId: string;
+  userId: string | null;
 }
 
 const PLAYLIST_ID = process.env.YOUTUBE_PLAYLIST_ID;
@@ -40,15 +42,91 @@ const logStep = (step: number, message: string) => log(`\n${step}. ${message}`);
 const logProgress = (current: number, total: number, message: string) =>
   log(`[${current}/${total}] ${message}`);
 
-// Data processing
-const findNewVideos = (
-  signalVideoIds: string[],
-  existingVideoIds: Set<string>,
-  blacklistedVideoIds: Set<string>,
-): string[] =>
-  signalVideoIds.filter(
-    (id) => !existingVideoIds.has(id) && !blacklistedVideoIds.has(id),
+/**
+ * Converts WhatsApp extraction result to the required metadata format
+ * @param youTubeLinks Array of YouTube links with metadata from WhatsApp
+ * @returns Array of metadata in the required format
+ */
+const convertToMetadataFormat = (
+  youTubeLinks: Array<{
+    videoId: string;
+    datetime: number;
+    userId: string | null;
+  }>,
+): WhatsAppYouTubeMetadata[] =>
+  youTubeLinks
+    .map((link) => ({
+      videoId: link.videoId,
+      datetime: link.datetime,
+      userId: link.userId,
+    }))
+    .sort((a, b) => a.datetime - b.datetime);
+
+/**
+ * Removes duplicate entries based on videoId, userId, and datetime combination
+ * @param metadata Array of YouTube metadata
+ * @returns Deduplicated array
+ */
+const deduplicateMetadata = (
+  metadata: WhatsAppYouTubeMetadata[],
+): WhatsAppYouTubeMetadata[] => {
+  const seen = new Set<string>();
+  const deduplicated = metadata.filter((entry) => {
+    const key = `${entry.videoId}:${entry.userId}:${entry.datetime}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  const duplicatesCount = metadata.length - deduplicated.length;
+  if (duplicatesCount > 0) {
+    log(`   🔄 Removed ${duplicatesCount} duplicate entries`);
+  }
+
+  return deduplicated;
+};
+
+/**
+ * Saves metadata to JSON file
+ * @param metadata Array of YouTube metadata
+ * @param outputPath Path to save the JSON file
+ */
+const saveMetadataToFile = async (
+  metadata: WhatsAppYouTubeMetadata[],
+  outputPath: string,
+): Promise<void> => {
+  const jsonData = JSON.stringify(metadata, null, 2);
+  await writeFile(outputPath, jsonData, "utf-8");
+  log(
+    `   💾 Saved ${metadata.length} YouTube links with metadata to ${outputPath}`,
   );
+};
+
+/**
+ * Validates that the WhatsApp export file path is provided
+ */
+const getWhatsAppFilePath = (): string => {
+  const defaultPath = join(process.cwd(), "data", "WhatsApp-music-group.txt");
+  return defaultPath;
+};
+
+/**
+ * Extracts YouTube links from WhatsApp export file
+ * @param filePath Path to the WhatsApp export file
+ * @returns Extraction results
+ */
+const extractWhatsAppData = async (filePath: string) => {
+  const config = createWhatsAppConfig(filePath, {
+    onlyYouTubeMessages: true,
+    parseOptions: {
+      skipSystemMessages: true,
+    },
+  });
+
+  return extractYouTubeLinks(filePath, config);
+};
 
 // Video addition result types
 interface AddResult {
@@ -76,29 +154,21 @@ const loadVideoBlacklist = async (): Promise<Set<string>> => {
   }
 };
 
+// Data processing
+const findNewVideos = (
+  whatsappVideoIds: string[],
+  existingVideoIds: Set<string>,
+  blacklistedVideoIds: Set<string>,
+): string[] =>
+  whatsappVideoIds.filter(
+    (id) => !existingVideoIds.has(id) && !blacklistedVideoIds.has(id),
+  );
+
 const handleBlacklistedVideo = (videoId: string): AddResult => ({
   status: "skipped",
   videoId,
   message: `🚫 Video ${videoId} is blacklisted - skipping`,
 });
-
-// Load legacy metadata from JSON file
-const loadLegacyMetadata = async (): Promise<YouTubeLinkWithMetadata[]> => {
-  try {
-    const dataPath = join(
-      process.cwd(),
-      "data",
-      "youtube_links_metadata_legacy.json",
-    );
-    const jsonData = await readFile(dataPath, "utf-8");
-    const metadata: YouTubeLinkWithMetadata[] = JSON.parse(jsonData);
-    return metadata;
-  } catch (error) {
-    throw new Error(
-      `Failed to load legacy metadata from data/youtube_links_metadata_legacy.json: ${error}`,
-    );
-  }
-};
 
 const handleVideoNotFound = (videoId: string): AddResult => ({
   status: "skipped",
@@ -215,7 +285,7 @@ const addVideosSequentially = async (
 
 // Statistics
 interface Stats {
-  totalLegacyVideos: number;
+  totalWhatsAppVideos: number;
   previouslyInPlaylist: number;
   blacklistedVideos: number;
   newVideosAdded: number;
@@ -225,12 +295,12 @@ interface Stats {
 }
 
 const calculateStats = (
-  legacyVideoIds: string[],
+  whatsappVideoIds: string[],
   existingVideoIds: Set<string>,
   blacklistedVideoIds: Set<string>,
   results: AddResult[],
 ): Stats => ({
-  totalLegacyVideos: legacyVideoIds.length,
+  totalWhatsAppVideos: whatsappVideoIds.length,
   previouslyInPlaylist: existingVideoIds.size,
   blacklistedVideos: results.filter((r) => r.message.includes("blacklisted"))
     .length,
@@ -245,7 +315,7 @@ const calculateStats = (
 
 const printStats = (stats: Stats): void => {
   log("\n📊 Summary:");
-  log(`   Total legacy videos: ${stats.totalLegacyVideos}`);
+  log(`   Total WhatsApp videos: ${stats.totalWhatsAppVideos}`);
   log(`   Previously in playlist: ${stats.previouslyInPlaylist}`);
   log(`   Blacklisted videos: ${stats.blacklistedVideos}`);
   log(`   New videos added: ${stats.newVideosAdded}`);
@@ -261,47 +331,57 @@ const checkForErrors = (stats: Stats): void => {
   }
 };
 
-// Main workflow
+/**
+ * Prints extraction statistics
+ * @param totalMessages Total messages processed
+ * @param youTubeMessages Messages containing YouTube links
+ * @param finalMetadataCount Final count after deduplication
+ * @param errors Number of errors encountered
+ */
+const printExtractionStats = (
+  totalMessages: number,
+  youTubeMessages: number,
+  finalMetadataCount: number,
+  errors: number,
+): void => {
+  log("\n📊 Extraction Summary:");
+  log(`   Total messages processed: ${totalMessages}`);
+  log(`   Messages with YouTube links: ${youTubeMessages}`);
+  log(`   Unique YouTube links extracted: ${finalMetadataCount}`);
+  log(`   Errors encountered: ${errors}`);
+};
+
+// Main workflow functions
 const loadExistingVideos = async (
   client: YouTubeClient,
   playlistId: string,
 ) => {
-  logStep(1, "📋 Loading existing videos from YouTube playlist...");
+  logStep(4, "📋 Loading existing videos from YouTube playlist...");
   const videoIds = await getPlaylistVideoIds(client, playlistId);
   log(`   Found ${videoIds.size} videos in playlist`);
   return videoIds;
 };
 
-const loadLegacyVideos = async () => {
-  logStep(2, "📱 Loading legacy YouTube links from JSON file...");
-  const metadata = await loadLegacyMetadata();
-  const videoIds = [...new Set(metadata.map((link) => link.videoId))];
-
-  log(`   Found ${videoIds.length} unique videos in legacy data`);
-  log(`   Found ${metadata.length} total YouTube links with metadata`);
-  return videoIds;
-};
-
 const loadBlacklist = async () => {
-  logStep(3, "🚫 Loading video blacklist...");
+  logStep(5, "🚫 Loading video blacklist...");
   const blacklistedVideoIds = await loadVideoBlacklist();
   log(`   Found ${blacklistedVideoIds.size} blacklisted videos`);
   return blacklistedVideoIds;
 };
 
 const checkNewVideos = (
-  legacyVideoIds: string[],
+  whatsappVideoIds: string[],
   existingVideoIds: Set<string>,
   blacklistedVideoIds: Set<string>,
 ) => {
-  logStep(4, "🔍 Checking for new videos...");
+  logStep(6, "🔍 Checking for new videos...");
   const newVideoIds = findNewVideos(
-    legacyVideoIds,
+    whatsappVideoIds,
     existingVideoIds,
     blacklistedVideoIds,
   );
 
-  const blacklistedCount = legacyVideoIds.filter((id) =>
+  const blacklistedCount = whatsappVideoIds.filter((id) =>
     blacklistedVideoIds.has(id),
   ).length;
 
@@ -324,7 +404,7 @@ const addNewVideos = async (
   newVideoIds: string[],
   blacklistedVideoIds: Set<string>,
 ) => {
-  logStep(5, "➕ Adding new videos to playlist...");
+  logStep(7, "➕ Adding new videos to playlist...");
   return addVideosSequentially(
     client,
     playlistId,
@@ -333,18 +413,25 @@ const addNewVideos = async (
   );
 };
 
+/**
+ * Handles errors and provides helpful messages
+ * @param error The error that occurred
+ */
 const handleError = (error: any): never => {
   console.error("\n❌ Fatal error:", error.message);
 
-  if (
+  if (error.message.includes("Cannot read WhatsApp export file")) {
+    log("\n💡 Make sure the WhatsApp export file exists:");
+    log("   Expected location: data/WhatsApp-music-group.txt");
+    log("   Export your WhatsApp chat and place it in the data directory");
+  } else if (error.message.includes("ENOENT")) {
+    log("\n💡 File not found. Check the file path and try again.");
+  } else if (
     error.message.includes("not initialized") ||
     error.path?.includes("token.json")
   ) {
     log("\n💡 Please authenticate with YouTube first:");
     log("   pnpm tsx src/youtube/auth.ts");
-  } else if (error.message.includes("youtube_links_metadata_1.json")) {
-    log("\n💡 Make sure the legacy metadata file exists:");
-    log("   data/youtube_links_metadata_1.json");
   } else if (error.message.includes("YOUTUBE_PLAYLIST_ID")) {
     log("\n💡 Add YOUTUBE_PLAYLIST_ID to your .env file:");
     log("   YOUTUBE_PLAYLIST_ID=PLxxxxxxxxxxxx");
@@ -353,27 +440,96 @@ const handleError = (error: any): never => {
   process.exit(1);
 };
 
-// Main function
-const updatePlaylistFromLegacy = async (): Promise<void> => {
-  log("🎵 Signal Music Group - Legacy Playlist Updater");
-  log("================================================");
+/**
+ * Main function to extract WhatsApp data, save to JSON, and upload to YouTube playlist
+ */
+const updateWhatsApp = async (): Promise<void> => {
+  log("📱 WhatsApp Music Group - Data Extractor & Playlist Updater");
+  log("=============================================================");
 
   try {
+    const whatsAppFilePath = getWhatsAppFilePath();
     const playlistId = validateEnvVars();
+
+    logStep(1, "📁 Extracting YouTube links from WhatsApp export...");
+    log(`   Reading file: ${whatsAppFilePath}`);
+
+    const result = await extractWhatsAppData(whatsAppFilePath);
+
+    log(`   Found ${result.youTubeLinks.length} YouTube links`);
+    log(`   Processed ${result.totalMessages} messages`);
+
+    if (result.errors.length > 0) {
+      log(`   ⚠️  Encountered ${result.errors.length} parsing errors`);
+      if (result.errors.length <= 5) {
+        result.errors.forEach((error) => log(`      ${error}`));
+      } else {
+        result.errors.slice(0, 3).forEach((error) => log(`      ${error}`));
+        log(`      ... and ${result.errors.length - 3} more errors`);
+      }
+    }
+
+    logStep(2, "🔄 Processing and deduplicating metadata...");
+    const metadata = convertToMetadataFormat(result.youTubeLinks);
+    const deduplicatedMetadata = deduplicateMetadata(metadata);
+
+    logStep(3, "💾 Saving metadata to file...");
+    const outputPath = join(
+      process.cwd(),
+      "data",
+      "youtube_links_metadata_whatsapp.json",
+    );
+    await saveMetadataToFile(deduplicatedMetadata, outputPath);
+
+    log("\n✨ WhatsApp data extraction complete!");
+    printExtractionStats(
+      result.totalMessages,
+      result.youTubeMessages,
+      deduplicatedMetadata.length,
+      result.errors.length,
+    );
+
+    // Show sample of extracted data
+    if (deduplicatedMetadata.length > 0) {
+      log("\n📋 Sample extracted data:");
+      const sample = deduplicatedMetadata.slice(0, 3);
+      sample.forEach((entry, index) => {
+        const date = new Date(entry.datetime).toLocaleString();
+        log(`   ${index + 1}. Video: ${entry.videoId}`);
+        log(`      User: ${entry.userId || "Unknown"}`);
+        log(`      Date: ${date}`);
+      });
+
+      if (deduplicatedMetadata.length > 3) {
+        log(`   ... and ${deduplicatedMetadata.length - 3} more entries`);
+      }
+    }
+
+    // YouTube playlist upload functionality
+    if (deduplicatedMetadata.length === 0) {
+      log("\n🎵 No videos to upload to YouTube playlist");
+      return;
+    }
+
+    log("\n🎵 Starting YouTube playlist upload...");
+    log("=====================================");
+
     const client = await initializeYouTubeClient();
+    const whatsappVideoIds = [
+      ...new Set(deduplicatedMetadata.map((link) => link.videoId)),
+    ];
 
     const existingVideoIds = await loadExistingVideos(client, playlistId);
-    const legacyVideoIds = await loadLegacyVideos();
     const blacklistedVideoIds = await loadBlacklist();
     const newVideoIds = checkNewVideos(
-      legacyVideoIds,
+      whatsappVideoIds,
       existingVideoIds,
       blacklistedVideoIds,
     );
 
     if (!newVideoIds) {
       const stats = calculateStats(
-        legacyVideoIds,
+        whatsappVideoIds,
         existingVideoIds,
         blacklistedVideoIds,
         [],
@@ -383,19 +539,19 @@ const updatePlaylistFromLegacy = async (): Promise<void> => {
       return;
     }
 
-    const results = await addNewVideos(
+    const uploadResults = await addNewVideos(
       client,
       playlistId,
       newVideoIds,
       blacklistedVideoIds,
     );
 
-    log("\n✨ Update complete!");
+    log("\n✨ YouTube playlist update complete!");
     const stats = calculateStats(
-      legacyVideoIds,
+      whatsappVideoIds,
       existingVideoIds,
       blacklistedVideoIds,
-      results,
+      uploadResults,
     );
     printStats(stats);
     checkForErrors(stats);
@@ -405,7 +561,7 @@ const updatePlaylistFromLegacy = async (): Promise<void> => {
 };
 
 // Run the update
-updatePlaylistFromLegacy().catch((error) => {
+updateWhatsApp().catch((error) => {
   console.error("Unhandled error:", error);
   process.exit(1);
 });

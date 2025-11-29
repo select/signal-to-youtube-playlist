@@ -2,6 +2,11 @@ import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import Database from "better-sqlite3-multiple-ciphers";
 import { config } from "dotenv";
+import {
+  extractYouTubeLinksFromMessages,
+  type YouTubeLinkWithMetadata,
+  type MessageData,
+} from "../utils/youtube-extractor.js";
 
 // Load environment variables from .env file
 config();
@@ -19,16 +24,9 @@ interface Conversation {
   id: string;
 }
 
-export interface YouTubeLinkWithMetadata {
-  videoId: string;
-  datetime: number;
-  userId: string | null;
-}
-
 interface SignalConfig {
   signalPath: string;
   groupName: string;
-  youTubeRegexes: RegExp[];
 }
 
 interface DbConnection {
@@ -40,10 +38,6 @@ interface DbConnection {
 const createSignalConfig = (): SignalConfig => ({
   signalPath: join(process.env.HOME!, process.env.SIGNAL_PATH!),
   groupName: process.env.SIGNAL_GROUP_NAME || "",
-  youTubeRegexes: [
-    /youtu\.be\/([\w-]+)/g,
-    /youtube\.com\/watch\?.*v=([\w-]+)/g,
-  ],
 });
 
 // Database initialization
@@ -106,26 +100,12 @@ const fetchMessages = (
     )
     .all(conversationId) as Message[];
 
-// Video extraction
-const extractLinksWithMetadataFromMessages = (
-  messages: Message[],
-  regexes: RegExp[],
-): YouTubeLinkWithMetadata[] =>
-  messages.flatMap((message) =>
-    regexes.flatMap((regex) => {
-      regex.lastIndex = 0;
-      const links: YouTubeLinkWithMetadata[] = [];
-      let match;
-      while ((match = regex.exec(message.body)) !== null) {
-        links.push({
-          videoId: match[1]!,
-          datetime: message.sent_at || message.timestamp,
-          userId: message.type === "incoming" ? message.sourceServiceId : null,
-        });
-      }
-      return links;
-    }),
-  );
+// Convert Signal messages to MessageData format
+const signalMessageToMessageData = (message: Message): MessageData => ({
+  body: message.body,
+  datetime: message.sent_at || message.timestamp,
+  userId: message.type === "incoming" ? message.sourceServiceId : null,
+});
 
 // Main functions
 export const extractLinksWithMetadata = (
@@ -136,10 +116,8 @@ export const extractLinksWithMetadata = (
     connection.config.groupName,
   );
   const messages = fetchMessages(connection.db, conversation.id);
-  return extractLinksWithMetadataFromMessages(
-    messages,
-    connection.config.youTubeRegexes,
-  );
+  const messageData = messages.map(signalMessageToMessageData);
+  return extractYouTubeLinksFromMessages(messageData);
 };
 
 export const closeDatabase = (connection: DbConnection): void => {

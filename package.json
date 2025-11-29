@@ -12,6 +12,7 @@
     "youtube": "tsx src/youtube/examples.ts",
     "sync": "tsx src/update.ts",
     "sync:legacy": "tsx src/update-legacy.ts",
+    "sync:whatsapp": "tsx src/update-whatsapp.ts",
     "auth": "tsx src/youtube/auth.ts",
     "anonymize": "tsx src/anonymize.ts"
   },
