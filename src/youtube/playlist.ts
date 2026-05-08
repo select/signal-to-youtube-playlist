@@ -78,6 +78,23 @@ export const initializeYouTubeClient = async (): Promise<YouTubeClient> => {
   try {
     const token = await loadToken();
     setCredentials(oauth2Client, token);
+
+    // Auto-refresh if token is expired or about to expire (within 5 minutes)
+    const expiryDate = token.expiry_date || 0;
+    const isExpired = expiryDate < Date.now() + 5 * 60 * 1000;
+    if (isExpired && token.refresh_token) {
+      console.log("   🔄 Token expired, refreshing...");
+      const { credentials: newTokens } =
+        await oauth2Client.refreshAccessToken();
+      await saveToken(newTokens);
+      console.log("   ✅ Token refreshed successfully");
+    }
+
+    // Persist refreshed tokens automatically
+    oauth2Client.on("tokens", async (tokens) => {
+      const current = await loadToken();
+      await saveToken({ ...current, ...tokens });
+    });
   } catch {
     throw new Error(
       "Authentication required. Please run authenticate() first.",
