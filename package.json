@@ -13,6 +13,7 @@
     "sync": "tsx src/update.ts",
     "sync:legacy": "tsx src/update-legacy.ts",
     "sync:whatsapp": "tsx src/update-whatsapp.ts",
+    "sync:full": "dotenv -e .env -- sh -c 'tsx src/update.ts && tsx src/anonymize.ts && cp data/anonymized-metadata.json $MUSIC_PLAYER_DELUXE_PATH/data/'",
     "auth": "tsx src/youtube/auth.ts",
     "anonymize": "tsx src/anonymize.ts"
   },
@@ -37,6 +38,7 @@
     "@typescript-eslint/eslint-plugin": "8.19.1",
     "@typescript-eslint/parser": "8.19.1",
     "@vitest/coverage-v8": "2.1.8",
+    "dotenv-cli": "11.0.0",
     "eslint": "9.18.0",
     "oxlint": "1.26.0",
     "prettier": "3.4.2",
