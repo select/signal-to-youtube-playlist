@@ -19,6 +19,11 @@ import { join } from "node:path";
 config();
 
 const PLAYLIST_ID = process.env.YOUTUBE_PLAYLIST_ID;
+// The frozen, full legacy playlist. Its ids are cached to
+// data/legacy-playlist-ids.json (run `pnpm cache:legacy`) and unioned with the
+// current playlist's live ids so already-archived videos aren't re-added.
+const LEGACY_PLAYLIST_ID =
+  process.env.LEGACY_PLAYLIST_ID || "PLHh-DPsAXiAUVUVA9DpRtiYRrwgvqg8Fx";
 const RATE_LIMIT_MS = 1000; // 1 second between requests
 
 // Utility functions
@@ -115,10 +120,21 @@ const handleDuplicateVideo = (videoId: string): AddResult => ({
   message: `⏭️  Already exists: ${videoId}`,
 });
 
-const handlePermissionError = (videoId: string): AddResult => ({
+const handlePermissionError = (videoId: string, reason?: string): AddResult => ({
   status: "error",
   videoId,
-  message: `❌ Permission denied for ${videoId} - check playlist permissions`,
+  message:
+    `❌ Permission denied for ${videoId}` +
+    (reason ? ` [${reason}] - check playlist permissions` : " - check playlist permissions"),
+});
+
+const handleQuotaError = (videoId: string, reason?: string, message?: string): AddResult => ({
+  status: "error",
+  videoId,
+  message:
+    `❌ Quota exceeded for ${videoId}` +
+    (reason ? ` [${reason}]` : "") +
+    (message ? ` - ${message}` : " - daily quota likely exhausted, retry after midnight PT"),
 });
 
 const handleGenericError = (videoId: string, error: string): AddResult => ({
@@ -159,7 +175,26 @@ const processVideoAddition = async (
       return handleDuplicateVideo(videoId);
     }
     if (error.code === 403) {
-      return handlePermissionError(videoId);
+      // YouTube returns 403 for several distinct reasons:
+      //   quotaExceeded / dailyLimitExceeded / userRateLimitExceeded -> quota
+      //   forbidden / forbiddenAccessory                       -> real permissions
+      // googleapis exposes the reason at error.errors[0].reason or
+      // error.response.data.error.errors[0].reason. Surface the real one
+      // instead of always reporting "permission denied".
+      const errors: any[] = error.errors || error.response?.data?.error?.errors || [];
+      const reason: string | undefined = errors[0]?.reason;
+      const apiMessage: string | undefined = errors[0]?.message;
+      const quotaReasons = new Set([
+        "quotaExceeded",
+        "dailyLimitExceeded",
+        "userRateLimitExceeded",
+        "rateLimitExceeded",
+        "quotaExceededTagger",
+      ]);
+      if (reason && quotaReasons.has(reason)) {
+        return handleQuotaError(videoId, reason, apiMessage);
+      }
+      return handlePermissionError(videoId, reason);
     }
     return handleGenericError(videoId, error.message);
   }
@@ -264,15 +299,43 @@ const checkForErrors = (stats: Stats): void => {
   }
 };
 
+const loadLegacyPlaylistIds = async (
+  client: YouTubeClient,
+): Promise<Set<string>> => {
+  const cachePath = join(process.cwd(), "data", "legacy-playlist-ids.json");
+  try {
+    const text = await readFile(cachePath, "utf-8");
+    const cache: { videoIds?: string[] } = JSON.parse(text);
+    const ids = new Set(cache.videoIds || []);
+    log(`   Loaded ${ids.size} legacy ids from cache (${cachePath})`);
+    return ids;
+  } catch {
+    log(
+      `   ⚠️  Legacy cache not found at ${cachePath}; fetching legacy playlist ${LEGACY_PLAYLIST_ID} via API (one-time, ~100 quota units)`,
+    );
+    const ids = await getPlaylistVideoIds(client, LEGACY_PLAYLIST_ID);
+    log(`   Fetched ${ids.size} legacy ids from YouTube`);
+    log(
+      `   💡 Run 'pnpm cache:legacy' to persist this so future runs skip the API fetch.`,
+    );
+    return ids;
+  }
+};
+
 // Main workflow
 const loadExistingVideos = async (
   client: YouTubeClient,
   playlistId: string,
 ) => {
-  logStep(1, "📋 Loading existing videos from YouTube playlist...");
-  const videoIds = await getPlaylistVideoIds(client, playlistId);
-  log(`   Found ${videoIds.size} videos in playlist`);
-  return videoIds;
+  logStep(1, "📋 Loading existing videos...");
+  const currentIds = await getPlaylistVideoIds(client, playlistId);
+  log(
+    `   Found ${currentIds.size} videos in current playlist (${playlistId})`,
+  );
+  const legacyIds = await loadLegacyPlaylistIds(client);
+  const allIds = new Set([...currentIds, ...legacyIds]);
+  log(`   Total existing (current + legacy): ${allIds.size}`);
+  return allIds;
 };
 
 const loadSignalVideos = async () => {
